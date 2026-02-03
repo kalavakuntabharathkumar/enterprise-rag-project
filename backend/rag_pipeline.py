@@ -76,7 +76,8 @@ class RAGPipeline:
         if intent != "document_question":
             latency_ms = (time.time() - start) * 1000
             self._log_query(question, intent, None, [], 0.0, 0.0, 1.0, latency_ms,
-                             answered=True, llm_skipped=True, estimated_tokens=0, estimated_cost_usd=0.0)
+                             answered=True, llm_skipped=True, estimated_tokens=0,
+                             estimated_cost_usd=0.0, llm_backend="none")
             return {
                 "answer": CANNED_RESPONSES.get(intent, CANNED_RESPONSES["chit_chat"]),
                 "sources": [],
@@ -97,7 +98,8 @@ class RAGPipeline:
             if not candidates:
                 latency_ms = (time.time() - start) * 1000
                 self._log_query(question, intent, query_type, [], 0.0, 0.0, 0.0, latency_ms,
-                                 answered=False, llm_skipped=True, estimated_tokens=0, estimated_cost_usd=0.0)
+                                 answered=False, llm_skipped=True, estimated_tokens=0,
+                                 estimated_cost_usd=0.0, llm_backend="none")
                 return {
                     "answer": "No relevant information found in the documents.",
                     "sources": [],
@@ -130,7 +132,7 @@ class RAGPipeline:
                 latency_ms = (time.time() - start) * 1000
                 self._log_query(question, intent, query_type, docs, top_similarity, avg_similarity,
                                  top_similarity, latency_ms, answered=True, llm_skipped=True,
-                                 estimated_tokens=0, estimated_cost_usd=0.0)
+                                 estimated_tokens=0, estimated_cost_usd=0.0, llm_backend="none")
                 return {
                     "answer": answer,
                     "sources": sources,
@@ -165,7 +167,8 @@ Answer concisely and cite sources if possible."""
             estimated_cost_usd = 0.0
             self._log_query(question, intent, query_type, docs, top_similarity, avg_similarity,
                              confidence, latency_ms, answered=True, llm_skipped=False,
-                             estimated_tokens=estimated_tokens, estimated_cost_usd=estimated_cost_usd)
+                             estimated_tokens=estimated_tokens, estimated_cost_usd=estimated_cost_usd,
+                             llm_backend=Config.LLM_BACKEND)
 
             return {
                 "answer": answer,
@@ -180,7 +183,8 @@ Answer concisely and cite sources if possible."""
             app_logger.error(f"Error answering question: {e}")
             latency_ms = (time.time() - start) * 1000
             self._log_query(question, intent, query_type, [], 0.0, 0.0, 0.0, latency_ms,
-                             answered=False, llm_skipped=True, estimated_tokens=0, estimated_cost_usd=0.0)
+                             answered=False, llm_skipped=True, estimated_tokens=0,
+                             estimated_cost_usd=0.0, llm_backend="error")
             return {
                 "answer": "An error occurred while processing your question.",
                 "sources": [],
@@ -190,7 +194,8 @@ Answer concisely and cite sources if possible."""
             }
 
     def _log_query(self, question, intent, query_type, docs, top_similarity, avg_similarity,
-                    confidence, latency_ms, answered, llm_skipped, estimated_tokens, estimated_cost_usd):
+                    confidence, latency_ms, answered, llm_skipped, estimated_tokens,
+                    estimated_cost_usd, llm_backend="unknown"):
         try:
             self.analytics.log({
                 "timestamp": time.time(),
@@ -206,6 +211,7 @@ Answer concisely and cite sources if possible."""
                 "llm_skipped": llm_skipped,
                 "estimated_tokens": estimated_tokens,
                 "estimated_cost_usd": estimated_cost_usd,
+                "llm_backend": llm_backend,
             })
         except Exception as e:
             app_logger.warning(f"Failed to log query analytics: {e}")

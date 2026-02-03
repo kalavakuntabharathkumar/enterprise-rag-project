@@ -21,6 +21,7 @@ LOG_COLUMNS = [
     "llm_skipped",
     "estimated_tokens",
     "estimated_cost_usd",
+    "llm_backend",
 ]
 
 
