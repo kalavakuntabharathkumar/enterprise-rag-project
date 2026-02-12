@@ -1,9 +1,23 @@
 version: "3.9"
 
 # FAISS runs embedded inside the backend process (it is a library, not a
-# server), so there is no separate vector-database container. What it
-# needs from "a vector DB service" is persistence across restarts, which
-# is handled by the `vectorstore_data` volume below.
+# server), so there is no separate vector-database container.  Persistence
+# is handled by the vectorstore_data volume below.
+#
+# Inference backend
+# -----------------
+# Start exactly one of the two model-server profiles:
+#
+#   docker compose --profile vllm    up --build   (default)
+#   docker compose --profile llamacpp up --build
+#
+# Both profiles mount the same models_data volume so the model files are
+# downloaded once and shared between runs.
+#
+# The backend service is told which server is active via LLM_BACKEND and
+# connects to it at the service name defined below (llm-server), so no
+# LLM_BASE_URL override is needed in the default setup.
+
 services:
   backend:
     build:
@@ -18,10 +32,20 @@ services:
       - DATA_PATH=/app/data
       - LOGS_PATH=/app/logs
       - API_KEY=${API_KEY:-}
+      - LLM_BACKEND=${LLM_BACKEND:-vllm}
+      - LLM_MODEL=${LLM_MODEL:-mistral-7b-instruct}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.1}
+      - LLM_TIMEOUT_SECS=${LLM_TIMEOUT_SECS:-120}
+      # LLM_BASE_URL is intentionally unset here so Config.get_llm_base_url()
+      # resolves the correct default for the active backend (vllm → 8000,
+      # llamacpp → 8080).  Set it explicitly only if the server runs on a
+      # non-standard host or port.
     volumes:
       - vectorstore_data:/app/vectorstore
       - ./data:/app/data
       - ./logs:/app/logs
+    depends_on:
+      - llm-server
 
   frontend:
     build:
@@ -34,5 +58,48 @@ services:
     depends_on:
       - backend
 
+  # vLLM — OpenAI-compatible inference server.
+  # Requires a CUDA-capable GPU on the host.  Pass --model to point at a
+  # local path or a Hugging Face model ID; mount models_data at /models to
+  # avoid re-downloading between restarts.
+  llm-server:
+    image: vllm/vllm-openai:latest
+    profiles:
+      - vllm
+    ports:
+      - "8000:8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    command: >
+      --model ${LLM_MODEL:-mistral-7b-instruct}
+      --download-dir /models
+    volumes:
+      - models_data:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # llama.cpp — CPU-first inference server with optional GPU offload.
+  # Set LLAMA_MODEL_PATH to the path (inside the container) of the GGUF
+  # model file; mount models_data at /models and place the file there.
+  llama-server:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    profiles:
+      - llamacpp
+    ports:
+      - "8080:8080"
+    command: >
+      --model /models/${LLAMA_MODEL_FILE:-mistral-7b-instruct.Q4_K_M.gguf}
+      --host 0.0.0.0
+      --port 8080
+      --ctx-size 4096
+    volumes:
+      - models_data:/models
+
 volumes:
   vectorstore_data:
+  models_data:
