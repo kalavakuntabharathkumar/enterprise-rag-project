@@ -15,7 +15,7 @@ from backend.logger import app_logger
 from backend.rag_pipeline import RAGPipeline
 from backend.schemas import (
     AnalyticsSummaryResponse,
-    AnswerResponse,
+    AskResponse,
     HealthResponse,
     QuestionRequest,
     StatsResponse,
@@ -98,7 +98,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Error processing PDF")
 
 
-@app.post("/ask", response_model=AnswerResponse, summary="Ask a question about the uploaded documents",
+@app.post("/ask", response_model=AskResponse, summary="Ask a question about the uploaded documents",
           dependencies=[Depends(verify_api_key)])
 async def ask_question(request: QuestionRequest):
     """Ask a question and get an answer based on uploaded documents.
