@@ -1,4 +1,8 @@
+import time
+from typing import List
+
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from backend.config import Config
 from backend.logger import app_logger
@@ -53,18 +57,88 @@ class DocumentRetriever:
             self.vectorstore.save_local(self.vectorstore_path)
             app_logger.info("Saved vectorstore to disk")
 
-    def add_documents(self, documents, metadatas=None):
-        """Add documents to vectorstore. No-op on an empty list rather than
-        letting FAISS.from_documents raise on an empty corpus."""
+    def _embed_in_batches(self, documents: List[Document], batch_size: int) -> List[list]:
+        """Embed document page_content in batches of `batch_size`, returning
+        a flat list of embedding vectors aligned 1-to-1 with `documents`.
+
+        Sending chunks to the OpenAI embedding API in controlled batches
+        (rather than all at once) gives explicit control over request size,
+        keeps individual API calls within token-rate-limit budgets, and
+        makes ingestion progress visible in logs. Each batch is a single
+        HTTP request; the total number of requests is ceil(n / batch_size).
+        """
+        texts = [doc.page_content for doc in documents]
+        n = len(texts)
+        all_embeddings: List[list] = []
+        ingestion_start = time.time()
+
+        app_logger.info(
+            f"Embedding {n} chunks in batches of {batch_size} "
+            f"({-(-n // batch_size)} API call(s))"
+        )
+
+        for batch_start in range(0, n, batch_size):
+            batch_texts = texts[batch_start: batch_start + batch_size]
+            batch_num = batch_start // batch_size + 1
+            batch_t0 = time.time()
+
+            batch_vectors = self.embeddings.embed_documents(batch_texts)
+            batch_ms = (time.time() - batch_t0) * 1000
+
+            all_embeddings.extend(batch_vectors)
+            app_logger.info(
+                f"  batch {batch_num}: {len(batch_texts)} chunks embedded "
+                f"in {batch_ms:.0f} ms"
+            )
+
+        total_ms = (time.time() - ingestion_start) * 1000
+        app_logger.info(
+            f"Ingestion embedding complete: {n} chunks in {total_ms:.0f} ms "
+            f"({total_ms / n:.1f} ms/chunk avg)"
+        )
+        return all_embeddings
+
+    def add_documents(self, documents: List[Document], metadatas=None):
+        """Embed `documents` in explicit batches then add pre-computed
+        vectors to the FAISS index.
+
+        Using pre-computed embeddings (via FAISS.from_embeddings /
+        vectorstore.add_embeddings) rather than passing raw documents to
+        FAISS.from_documents gives us:
+        - Explicit batch-size control over embedding API requests
+        - Per-batch timing visible in the application log
+        - A single place to swap the embedding backend without touching
+          FAISS construction logic
+
+        No-op on an empty list rather than letting FAISS raise on an
+        empty corpus.
+        """
         if not documents:
             app_logger.warning("add_documents called with no documents; skipping")
             return
+
         if self.vectorstore is None:
             self.load_vectorstore()
+
+        vectors = self._embed_in_batches(documents, batch_size=Config.EMBED_BATCH_SIZE)
+
+        # Build (text, embedding) pairs; keep metadatas aligned.
+        doc_metadatas = [doc.metadata for doc in documents]
+        texts = [doc.page_content for doc in documents]
+        text_embedding_pairs = list(zip(texts, vectors))
+
         if self.vectorstore is None:
-            self.vectorstore = FAISS.from_documents(documents, self.embeddings)
+            self.vectorstore = FAISS.from_embeddings(
+                text_embedding_pairs,
+                self.embeddings,
+                metadatas=doc_metadatas,
+            )
         else:
-            self.vectorstore.add_documents(documents, metadatas=metadatas)
+            self.vectorstore.add_embeddings(
+                text_embedding_pairs,
+                metadatas=doc_metadatas,
+            )
+
         self.save_vectorstore()
         app_logger.info(f"Added {len(documents)} documents to vectorstore")
 

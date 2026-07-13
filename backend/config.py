@@ -15,6 +15,13 @@ class Config:
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     MIN_CHUNK_QUALITY = float(os.getenv("MIN_CHUNK_QUALITY", 0.35))
     RERANK_ALPHA = float(os.getenv("RERANK_ALPHA", 0.6))
+    # Number of chunks sent to the embedding API in a single call during
+    # document ingestion. Larger values reduce API round-trips; smaller
+    # values reduce peak memory and make progress logging finer-grained.
+    # OpenAI's text-embedding-3-* models accept up to 2048 inputs per call,
+    # so any value up to that is valid. 32 is a conservative default that
+    # keeps individual requests well within rate-limit token budgets.
+    EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", 32))
     # Stub auth: unset means the API is open. Set API_KEY to require callers
     # to send a matching X-API-Key header on /upload and /ask.
     API_KEY = os.getenv("API_KEY")
