@@ -2,6 +2,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from backend.config import Config
 from backend.logger import app_logger
+from backend.query_cache import retrieval_cache
 import os
 
 class DocumentRetriever:
@@ -77,7 +78,17 @@ class DocumentRetriever:
         distance (lower is more similar); we convert it to a similarity so
         it can be combined with lexical re-ranking scores and logged
         alongside confidence in the analytics layer.
+
+        Results are cached in-memory by (query, k) so that an identical
+        query string never triggers a second OpenAI embedding call within
+        the same process lifetime. See backend/query_cache.py for details
+        and limitations.
         """
+        hit, cached = retrieval_cache.get(query, k)
+        if hit:
+            app_logger.info(f"Cache hit for query (k={k}): {query}")
+            return cached
+
         if self.vectorstore is None:
             self.load_vectorstore()
         if self.vectorstore is None:
@@ -86,6 +97,7 @@ class DocumentRetriever:
             results = self.vectorstore.similarity_search_with_score(query, k=k)
             scored = [(doc, 1.0 / (1.0 + score)) for doc, score in results]
             app_logger.info(f"Retrieved {len(scored)} documents for query: {query}")
+            retrieval_cache.set(query, k, scored)
             return scored
         except Exception as e:
             app_logger.error(f"Error retrieving documents: {e}")

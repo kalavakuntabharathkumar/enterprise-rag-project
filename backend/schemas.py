@@ -62,3 +62,8 @@ class StatsResponse(BaseModel):
     vector_db_size_bytes: int
     avg_tokens_per_query: float
     estimated_cost_per_query_usd: float
+    cache_hits: int = 0
+    cache_misses: int = 0
+    cache_hit_rate: float = 0.0
+    cache_size: int = 0
+    cache_maxsize: int = 0

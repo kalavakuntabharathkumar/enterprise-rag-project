@@ -12,6 +12,7 @@ from backend.config import Config
 from backend.inference_client import InferenceError
 from backend.latency import LatencyLog, start_recording
 from backend.logger import app_logger
+from backend.query_cache import retrieval_cache
 from backend.rag_pipeline import RAGPipeline
 from backend.schemas import (
     AnalyticsSummaryResponse,
@@ -153,12 +154,14 @@ async def stats():
     avg_tokens = float(df["estimated_tokens"].mean()) if not df.empty and "estimated_tokens" in df else 0.0
     avg_cost = float(df["estimated_cost_usd"].mean()) if not df.empty and "estimated_cost_usd" in df else 0.0
 
+    cache_stats = retrieval_cache.stats()
     return StatsResponse(
         total_documents_indexed=vector_stats["total_documents"],
         total_chunks=vector_stats["total_chunks"],
         vector_db_size_bytes=vector_stats["vector_db_size_bytes"],
         avg_tokens_per_query=avg_tokens,
         estimated_cost_per_query_usd=avg_cost,
+        **cache_stats,
     )
 
 
